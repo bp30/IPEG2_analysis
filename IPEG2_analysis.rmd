@@ -53,9 +53,6 @@ These measures are included to reduce the possibility of participants correctly 
 if (!require(pacman)) install.packages('pacman')
 pacman::p_load(tidyverse,brms, bayestestR) 
 
-# Set working directory
-setwd('C:/Users/dpen466/Google Drive/Phd (1)/Experiment/Studies/Data/IPE/IPEG/IPEG2/IPEG2_analysis/') #to change
-
 # source custom codes
 source("C:/Users/dpen466/Google Drive/Phd (1)/Experiment/Studies/Data/IPE/source/Bayes_scripts.R")
 ```
@@ -111,16 +108,6 @@ Bayes<- brm(data=IPEG2.df, family=cumulative("logit"),
                            prior(lkj(1), class = cor)),
                   iter=7000,warmup =2000, chains=8, cores=8, seed=20, sample_prior=T,save_all_pars = T, control=list(adapt_delta=0.99))
 
-Bayes_gen<- brm(data=IPEG2.df, family=cumulative("logit"),
-                      formula= bf(Help~Match_condition+HT_sex_c+HT_age_c+(Match_condition|participant)+
-                      (Match_condition|Sim_SID)+(Match_condition|HTFace_ID)+(Match_condition|STFace_ID)+(1|HS_ID)) +
-                   lf(disc~ 0+Match_condition, cmc=F),
-                  prior= c(prior(normal (0,1), class=b),
-                           prior(normal(0,1.2), class=Intercept),
-                           prior(exponential(1), class= sd),
-                           prior(lkj(1), class = cor)),
-                  iter=7000,warmup =2000, chains=8, cores=8, seed=20, sample_prior=T,save_all_pars = T,control=list(adapt_delta=0.99))
-
 
 # Diagnostic Checks: pp check and traceplots
 pp_check(Bayes);plot(Bayes)
@@ -130,57 +117,66 @@ bayes_samples(Bayes)
 # Prior Predictive simulations
 set.seed(67);prior_sim(Bayes, c("sd_participant", 'cor_participant', "b"))
 
-# Extract posterior samples 
-set.seed(67)
-posterior<- posterior_samples(Bayes) 
-latent_SD(posterior)
-
-# plot forest plot for the prosocial simulation effect 
-forest.df<-as.data.frame(coef(Bayes)$participant[, ,1])
-forest<- forest_plot(forest.df, c(0.37, 0.05, 0.70))
-forest+ylab("Participants")+
-      xlab ("Beta coefficients")
-
-# Summary
-summary(Bayes, prob=0.89)
-# Evidence Ratios (not reported)
-(ER<-hypothesis(Bayes, hypothesis =c("ConditionsImagine>0"),alpha=0.055, seed=67))
+# Results
+summary(Bayes, probs=0.89)
 # pd
-colMeans(ER$samples>0/4e4)
+p_direction(Bayes, parameters = "b_Conditions")
 # % in ROPE
-rope(ER$samples,ci=1, range = c(-0.1, 0.1))
+rope(Bayes,ci=1, range = c(-0.10, 0.10), parameters = "b_Conditions")
+
+# Extract posterior samples 
+set.seed(67);posterior<- posterior_samples(Bayes) 
+latent_SD(posterior)
+```
+### Plots
+```{r}
+# Violin plots
+plot.df<- as.data.frame(posterior$b_ConditionsImagine)
+colnames(plot.df)<- "Posterior"
+ggplot(plot.df, aes(x=1, y=Posterior)) +
+                      geom_violin(trim=FALSE) +
+                      geom_boxplot(width=0.1, fill="white") +
+                      theme_classic() +
+                      geom_hline(yintercept=0, linetype="dashed", color = "red", size=0.5) +
+                      labs(x="Contrasts", y = expression(beta)) +
+                      stat_boxplot(geom = "errorbar", width = 0.1, coef=0.7) + 
+                      theme(legend.position = "none") +
+                      xlab("Imagine Helping>Identify Media Source") +
+                      scale_x_discrete(labels=c(""))
 # Plot the predicted probability of each category on the outcome measure for each condition
-conditional_effects(Bayes,categorical=T)
-# Plot the posterior probability and 95% credible intervals for the two main fixed effects of interest 
-bayesplot::mcmc_areas(Bayes,pars = "b_ConditionsImagine",prob=0.90, prob_outer=0.95 , point_est="mean")
+PSE_plot<-conditional_effects(Bayes,categorical=T)
+plot(PSE_plot)[[1]] +
+  scale_x_discrete(labels=c("Identify Media Source", "Imagine Helping")) +
+  theme_classic() +
+  xlab("Simulation Conditions") +
+  ylim (0, 0.45)
 ```
 
-
-### Contrast the prosocial simulation effect across IPE, IPEF and IPEG
+### Contrast PSE across IPE, IPEF and IPEG
 ```{r}
 IPE_imagine.df<-readRDS(file="IPE_Imagine.rds")
 IPEF_imagine.df<-readRDS(file="IPEF_Imagine.rds")
 IPEG_imagine.df<- readRDS(file="IPEG_Imagine.rds")
-
-PSE<- cbind.data.frame('IPE'=IPE_imagine.df,
+# Violin Plot of each experiment
+PSE<-cbind.data.frame('IPE'=IPE_imagine.df,
                        'IPEF'=IPEF_imagine.df,
                        'IPEG'=IPEG_imagine.df,
                        'IPEG2'= posterior$b_ConditionsImagine)
 PSE.df<-PSE
 PSE<- PSE %>% gather("IPE","IPEF", 'IPEG','IPEG2', key= Condition, value= Posterior)
-
 violin_PSE<- violin_bayes(PSE)[[1]]
 violin_PSE +
   labs(title="Prosocial simulation effect across experiments",x="Experiment", y = "Beta coefficient") +
-  geom_hline(yintercept = c(-0.1, 0.1), color="blue", linetype='dashed') + 
   stat_boxplot(geom = "errorbar", width = 0.1, coef=0.7)
-violin_bayes(PSE, CI_range = c(0.055, 0.945))[[2]]
 
-# Existence and significance of PSE
+# Summaries
+violin_bayes(PSE, CI_range = c(0.055, 0.945))[[2]]
+# pd
 p_direction(PSE.df)
+# % in ROPE
 rope(PSE.df,ci=1, range = c(-0.1, 0.1))
 #-------------------------------------------------------------------------------------------------------------------------
-# plot the contrast between them
+# Contrasts between conditions across experiments
 IPE_IPEG2<-PSE$Posterior[PSE$Condition=="IPE"]-PSE$Posterior[PSE$Condition=="IPEG2"]
 IPEF_IPEG2<-PSE$Posterior[PSE$Condition=="IPEF"]-PSE$Posterior[PSE$Condition=="IPEG2"]
 IPE_IPEG<-PSE$Posterior[PSE$Condition=="IPE"]-PSE$Posterior[PSE$Condition=="IPEG"]
@@ -194,15 +190,16 @@ PSE_dif<- cbind.data.frame("IPE-IPEG"=IPE_IPEG,
                           "IPEG-IPEG2"=IPEG_IPEG2)
 PSE_dif.df<-PSE_dif
 PSE_dif<- PSE_dif %>% gather("IPE-IPEG","IPEF-IPEG","IPE-IPEG2","IPEF-IPEG2","IPEG-IPEG2", key= Condition, value= Posterior)
-
 violin_dif<- violin_bayes(PSE_dif)[[1]]
 violin_dif +
-  labs(title="Contrast of Prosocial simulation effect across experiments",x="Contrast", y = "Beta coefficient") +
-  geom_hline(yintercept = c(-0.1, 0.1), color="blue", linetype='dashed') + 
+  labs(title="Contrast of Prosocial simulation effect across experiments",x="Contrast", y = "Beta coefficient") + 
   stat_boxplot(geom = "errorbar", width = 0.1, coef=0.7)
-violin_bayes(PSE_dif, CI_range = c(0.055, 0.945))[[2]]
 
+# Summaries
+violin_bayes(PSE_dif, CI_range = c(0.055, 0.945))[[2]]
+# pd
 p_direction(PSE_dif.df)
+# % in ROPE
 rope(PSE_dif.df,ci=1, range = c(-0.1, 0.1))
 ```
 
@@ -219,81 +216,70 @@ Bayes_gen<- brm(data=IPEG2.df, family=cumulative("logit"),
                            prior(lkj(1), class = cor)),
                   iter=7000,warmup =2000, chains=8, cores=8, seed=20, sample_prior=T,save_all_pars = T,control=list(adapt_delta=0.99))
 
-# Diagnostic Checks
-## Posterior prediction check- seems good
-pp_check(Bayes_gen)
-## MCMC plots - all seems to be nicely sampled
-plot(Bayes_gen)
-## Posterior probability for each parameter
-mcmc_plot (Bayes_gen)
+# Diagnostic Checks: pp check and traceplots
+pp_check(Bayes_gen);plot(Bayes_gen)
+# Rhat and sample sizes
+bayes_samples(Bayes_gen)
 
-# Prior Predictive simulations
-set.seed(67)
-prior_sim(Bayes_gen, c("sd_participant", 'cor_participant', "b"))
-
-# Total number of Sample size and sample sizes for each parameter
-Bayes_gen_sample<-bayes_samples(Bayes_gen)
-
-# Results
+# Summary
 summary(Bayes_gen, prob=0.89)
-
-
-# Plot the predicted probability of each category on the outcome measure for each condition
-conditional_effects(Bayes_gen,categorical=T)
-
-
+# pd
 p_direction(Bayes_gen, parameters = "b_Match_condition")
-rope(Bayes_gen,ci=1, range = c(-0.1, 0.1),parameters = "b_Match_condition")
+# % in ROPE
+rope(Bayes_gen,ci=1, range = c(-0.10, 0.10), parameters ="b_Match_condition")
 
-test<- hypothesis(Bayes_gen, hypothesis =c("Match_conditionHTMHSM -Match_conditionHTMHSP=0",
-                                           "Match_conditionHTMHSM -Match_conditionHTPHSM=0",
-                                           "Match_conditionHTMHSM -Match_conditionHTPHSP=0",
-                                           "Match_conditionHTMHSP -Match_conditionHTPHSM=0",
-                                           "Match_conditionHTMHSP -Match_conditionHTPHSP=0",
-                                           "Match_conditionHTPHSM -Match_conditionHTPHSP=0" ) , alpha=0.025)
-test;plot(test)
-
-
+# BF01
+BF01<- hypothesis(Bayes_gen, hypothesis =c("Match_conditionHTMHSM - Match_conditionHTPHSM=0",
+                                           "Match_conditionHTMHSM - Match_conditionHTMHSP=0",
+                                           "Match_conditionHTMHSM - Match_conditionHTPHSP=0",
+                                           "Match_conditionHTPHSM - Match_conditionHTMHSP=0",
+                                           "Match_conditionHTPHSM - Match_conditionHTPHSP=0",
+                                           "Match_conditionHTMHSP - Match_conditionHTPHSP=0" ) , alpha=0.055)
+BF01;plot(BF01)
 
 # Extract posterior samples 
-set.seed(67)
-posterior_gen<- posterior_samples(Bayes_gen) 
+set.seed(67);posterior_gen<- posterior_samples(Bayes_gen) 
 latent_SD(posterior_gen)
 ```
 
 ### Violn plots
 ```{r}
-match_cond2<-posterior_gen$b_Match_conditionHTMHSM
-match_cond3<-posterior_gen$b_Match_conditionHTPHSM
-match_cond4<-posterior_gen$b_Match_conditionHTMHSP
-match_cond5<-posterior_gen$b_Match_conditionHTPHSP
-gen_effect<- cbind.data.frame("HT-HS-"= match_cond2,
-                              "HT+HS-"= match_cond3,
-                              "HT-HS+"= match_cond4,
-                              "HT+HS+"= match_cond5)
+gen_effect<- cbind.data.frame("HT-HS-"= posterior_gen$b_Match_conditionHTMHSM,
+                              "HT+HS-"= posterior_gen$b_Match_conditionHTPHSM,
+                              "HT-HS+"= posterior_gen$b_Match_conditionHTMHSP,
+                              "HT+HS+"= posterior_gen$b_Match_conditionHTPHSP)
 gen_effect.df<-gen_effect
 gen_effect<- gen_effect %>%gather("HT-HS-", "HT+HS-", "HT-HS+", "HT+HS+", key= Condition, value= Posterior)
-
 violin_gen<- violin_bayes(gen_effect)[[1]]
 violin_gen +
   labs(title="Grading effect of generalization",x="Condition", y = "Beta coefficient") +
-  stat_boxplot(geom = "errorbar", width = 0.1, coef=0.7) + 
-  geom_hline(yintercept=c(-0.1, 0.1),color="blue",linetype="dashed")
+  stat_boxplot(geom = "errorbar", width = 0.1, coef=0.7)
+# Summary
 violin_bayes(gen_effect, CI_range=c(0.055, 0.945))[[2]]
-
-test<- cbind.data.frame("HT-HS->HT+HS-"=match_cond2-match_cond3, 
-                        "HT-HS->HT-HS+"=match_cond2-match_cond4, 
-                        "HT-HS->HT+HS+"=match_cond2-match_cond5, 
-                        "HT+HS->HT-HS+"=match_cond3-match_cond4,
-                        "HT+HS->HT+HS+"=match_cond3-match_cond5,
-                        "HT-HS+>HT+HS+"=match_cond4-match_cond5)
-test2<-test%>%gather("HT-HS->HT+HS-","HT-HS->HT-HS+","HT-HS->HT+HS+","HT+HS->HT-HS+","HT+HS->HT+HS+","HT-HS+>HT+HS+",key= Condition, value= Posterior)
-violin_test<- violin_bayes(test2)[[1]]
-violin_test+
+#-------------------------------------------------------------------------------------------------------------
+# Plot the predicted probability of each category on the outcome measure for each condition
+Gen_plot<-conditional_effects(Bayes_gen,categorical=T)
+plot(Gen_plot)[[1]] +
+  scale_x_discrete(labels=c("Identify Media Source", "HT-HS-", "HT+HS-", "HT-HS+", "HT+HS+")) +
+  theme_classic() +
+  xlab("Simulation Conditions") +
+  ylim (0, 0.45)
+#-------------------------------------------------------------------------------------------------------------
+cond_contrasts<- BF01$samples
+colnames(cond_contrasts) <- c("HT-HS->HT+HS-","HT-HS->HT-HS+","HT-HS->HT+HS+","HT+HS->HT-HS+","HT+HS->HT+HS+","HT-HS+>HT+HS+")
+cond_contrasts.df <- cond_contrasts
+cond_contrasts.df<-cond_contrasts.df %>% gather("HT-HS->HT+HS-","HT-HS->HT-HS+","HT-HS->HT+HS+","HT+HS->HT-HS+","HT+HS->HT+HS+","HT-HS+>HT+HS+",key= Condition, value= Posterior)
+contrast_plot<- violin_bayes(cond_contrasts.df)[[1]]
+contrast_plot+
   labs(title="Contrasts between conditions",x="contrasts", y = "Beta coefficient") +
   stat_boxplot(geom = "errorbar", width = 0.1, coef=0.7) + 
   geom_hline(yintercept=c(-0.1, 0.1),color="blue",linetype="dashed")
-point_estimate(test);p_direction (test)
+
+# Summary
+violin_bayes(cond_contrasts.df, CI=c(0.055, 0.945))[[1]]
+# pd
+p_direction (cond_contrasts.df)
+# % in ROPE
 rope(test,ci=1, range =c(-0.10, 0.10))
 ```
 
@@ -312,41 +298,57 @@ rope(test,ci=1, range =c(-0.10, 0.10))
 
 ```{r}
 # Null model 
-null<- brm(data= IPEG.df, family=cumulative("logit"), 
-                  Help~1+(1|participant)+
-                      (1|Story_ID)+(1|HTFace_ID)+(1|STFace_ID)+(1|STFace_ID),
-                  prior= c(prior(normal(0,1.2), class=Intercept),
+null<- brm(data= IPEG2.df, family=cumulative("logit"), 
+                  Help~HT_sex_c+HT_age_c+(1|participant)+(1|Sim_SID)+(1|HTFace_ID)+(1|STFace_ID)+(1|HS_ID),
+                  prior= c(prior(normal (0,1), class=b),
+                           prior(normal(0,1.2), class=Intercept),
                            prior(exponential(1), class= sd)), 
-                  iter=7000,warmup=2000,chains=8, cores=8, seed=67, sample_prior=T, save_all_pars = T)
+                  iter=7000,warmup=2000,chains=8, cores=8, seed=67, sample_prior=T, save_all_pars = T ,control=list(adapt_delta=0.99))
 
-set.seed (67)
-unrestricted <- bayes_factor(Bayes_gen, null)
-unrestricted$bf
+# Mu3
+Bayes_mu3<- brm(data=IPEG2.df, family=cumulative("logit"),
+                      formula= bf(Help~ORM_code+HT_sex_c+HT_age_c+(ORM_code|participant)+
+                      (ORM_code|Sim_SID)+(1|HTFace_ID)+(1|STFace_ID)+(1|HS_ID)) +
+                   lf(disc~ 0+ORM_code, cmc=F),
+                  prior= c(prior(normal (0,1), class=b),
+                           prior(normal(0,1.2), class=Intercept),
+                           prior(exponential(1), class= sd),
+                           prior(lkj(1), class = cor)),
+                  iter=7000,warmup =2000, chains=8, cores=8, seed=20, sample_prior=T,save_all_pars = T,control=list(adapt_delta=0.99))
+set.seed(67);posterior_mu3<- posterior_samples(Bayes_mu3)
+
+# Mu1/M0
+set.seed (67);BF_Mu1_vs_M0 <- bayes_factor(Bayes, null)
+BF_Mu1_vs_M0
+# Mu2/M0
+set.seed (67);BF_Mu2_vs_M0 <- bayes_factor(Bayes_gen, null)
+BF_Mu2_vs_M0
+# Mu3/M0
+set.seed (67);BF_Mu3_vs_M0 <- bayes_factor(Bayes_mu3, null)
+BF_Mu3_vs_M0
+
+
 
 # set ROPE as 0.055
 ## Ordered Restricted model 1
-restrictedmodel1<- (posterior_gen[, "b_Match_conditionSMAM"]>0) & 
-  (posterior_gen[, "b_Match_conditionSMAP"]-posterior_gen[, "b_Match_conditionSMAM"]>0) &
-  (abs(posterior_gen[, "b_Match_conditionSMAP"]-posterior_gen[, "b_Match_conditionSPAM"])<0.1) &
-  (posterior_gen[, "b_Match_conditionSPAP"]-posterior_gen[, "b_Match_conditionSPAM"]>0)
-
-(restrictedmodel1_BF<-restricted_BF(restrictedmodel1, 4e4, 5))
+m1<- (posterior[, "b_ConditionsImagine"]>0) 
+(BF_M1_vs_Mu1<-restricted_BF(m1, 4e4, 2))
 
 ## Order restricted model 2
-restrictedmodel2<-(posterior_gen[, "b_Match_conditionSMAM"]>0) & 
-  (abs(posterior_gen[, "b_Match_conditionSMAM"]-posterior_gen[, "b_Match_conditionSPAM"])<0.1) &
-  (posterior_gen[, "b_Match_conditionSMAP"]>posterior_gen[, "b_Match_conditionSPAM"]) &
-  (abs(posterior_gen[, "b_Match_conditionSPAP"]-posterior_gen[, "b_Match_conditionSMAP"])<0.1)
+m2<-(posterior_gen[, "b_Match_conditionHTMHSM"]>0) & 
+  (posterior_gen[, "b_Match_conditionHTMHSM"] < posterior_gen[, "b_Match_conditionHTPHSM"]) &
+  (abs(posterior_gen[, "b_Match_conditionHTPHSM"]-posterior_gen[, "b_Match_conditionHTMHSP"]) < 0.1) &
+  (posterior_gen[, "b_Match_conditionHTPHSP"] > posterior_gen[, "b_Match_conditionHTMHSP"])
 
-(restrictedmodel2_BF<-restricted_BF(restrictedmodel2, 4e4, 5))
+(BF_M2_vs_Mu2<-restricted_BF(m2, 4e4, 5))
 
-restricted2.vsrestricted1<-restricted2.vsunrestricted*(1/restricted1.vsunrestricted)
-restricted2.vsrestricted1
+## Order restricted model 3
+m3<-(posterior_mu3[, "b_ORM_codeImagine"]>0) & 
+    (posterior_mu3[, "b_ORM_codeImagine"]<posterior_mu3[, "b_ORM_codeHTPHSP"])
 
-test<-(abs(posterior_gen[, "b_Match_conditionSMAM"]-posterior_gen[, "b_Match_conditionSMAP"])<0.1) &
-  (abs(posterior_gen[, "b_Match_conditionSMAP"]-posterior_gen[, "b_Match_conditionSPAM"])<0.1) &
-  (abs(posterior_gen[, "b_Match_conditionSPAM"]-posterior_gen[, "b_Match_conditionSPAP"])<0.1)
-(test_BF<-restricted_BF(test, 4e4, 5))
+(BF_M3_vs_Mu3<-restricted_BF(m3, 4e4, 3))
+
+
 
 
 ```
@@ -388,12 +390,11 @@ Bayes_mu3<- brm(data=IPEG2.df, family=cumulative("logit"),
 
 
 # M0
-null<- brm(data= IPEG.df, family=cumulative("logit"), 
-                  Help~HT_sex_c+HT_age_c+(1|participant)+
-                      (1|Story_ID)+(1|HTFace_ID)+(1|STFace_ID)+(1|STFace_ID),
+null<- brm(data= IPEG2.df, family=cumulative("logit"), 
+                  Help~ HT_sex_c+HT_age_c+(1|participant)+(1|Sim_SID)+(1|HTFace_ID)+(1|STFace_ID)+(1|HS_ID),
                   prior= c(prior(normal(0,1.2), class=Intercept),
                            prior(exponential(1), class= sd)), 
-                  iter=7000,warmup=2000,chains=8, cores=8, seed=67, sample_prior=T, save_all_pars = T)
+                  iter=7000,warmup=2000,chains=8, cores=8, seed=67, sample_prior=T, save_all_pars = T,control=list(adapt_delta=0.99))
 ```
 
 
