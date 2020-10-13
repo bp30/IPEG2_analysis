@@ -127,6 +127,10 @@ rope(Bayes,ci=1, range = c(-0.10, 0.10), parameters = "b_Conditions")
 # Extract posterior samples 
 set.seed(67);posterior<- posterior_samples(Bayes) 
 latent_SD(posterior)
+
+
+test<- hypothesis(Bayes, hypothesis = "ConditionsImagine = 0", alpha=0.055)
+test;plot(test)
 ```
 ### Plots
 ```{r}
@@ -276,11 +280,11 @@ contrast_plot+
   geom_hline(yintercept=c(-0.1, 0.1),color="blue",linetype="dashed")
 
 # Summary
-violin_bayes(cond_contrasts.df, CI=c(0.055, 0.945))[[1]]
+violin_bayes(cond_contrasts.df, CI=c(0.055, 0.945))[[2]]
 # pd
-p_direction (cond_contrasts.df)
+p_direction (cond_contrasts)
 # % in ROPE
-rope(test,ci=1, range =c(-0.10, 0.10))
+rope(cond_contrasts,ci=1, range =c(-0.10, 0.10))
 ```
 
 
@@ -305,6 +309,7 @@ null<- brm(data= IPEG2.df, family=cumulative("logit"),
                            prior(exponential(1), class= sd)), 
                   iter=7000,warmup=2000,chains=8, cores=8, seed=67, sample_prior=T, save_all_pars = T ,control=list(adapt_delta=0.99))
 
+levels(IPEG2.df$ORM_code)
 # Mu3
 Bayes_mu3<- brm(data=IPEG2.df, family=cumulative("logit"),
                       formula= bf(Help~ORM_code+HT_sex_c+HT_age_c+(ORM_code|participant)+
@@ -314,18 +319,18 @@ Bayes_mu3<- brm(data=IPEG2.df, family=cumulative("logit"),
                            prior(normal(0,1.2), class=Intercept),
                            prior(exponential(1), class= sd),
                            prior(lkj(1), class = cor)),
-                  iter=7000,warmup =2000, chains=8, cores=8, seed=20, sample_prior=T,save_all_pars = T,control=list(adapt_delta=0.99))
+                  iter=7000,warmup = 2000, chains=8, cores=8, seed=20, sample_prior=T,save_all_pars = T,control=list(adapt_delta=0.99))
 set.seed(67);posterior_mu3<- posterior_samples(Bayes_mu3)
 
-# Mu1/M0
+ # Mu1/M0
 set.seed (67);BF_Mu1_vs_M0 <- bayes_factor(Bayes, null)
-BF_Mu1_vs_M0
+(BF_M0_vs_Mu1 <- 1/BF_Mu1_vs_M0$bf)
 # Mu2/M0
 set.seed (67);BF_Mu2_vs_M0 <- bayes_factor(Bayes_gen, null)
-BF_Mu2_vs_M0
+(BF_M0_vs_Mu2 <- 1/BF_Mu2_vs_M0$bf)
 # Mu3/M0
 set.seed (67);BF_Mu3_vs_M0 <- bayes_factor(Bayes_mu3, null)
-BF_Mu3_vs_M0
+(BF_M0_vs_Mu3 <- 1/BF_Mu3_vs_M0$bf)
 
 
 
@@ -339,23 +344,42 @@ m2<-(posterior_gen[, "b_Match_conditionHTMHSM"]>0) &
   (posterior_gen[, "b_Match_conditionHTMHSM"] < posterior_gen[, "b_Match_conditionHTPHSM"]) &
   (abs(posterior_gen[, "b_Match_conditionHTPHSM"]-posterior_gen[, "b_Match_conditionHTMHSP"]) < 0.1) &
   (posterior_gen[, "b_Match_conditionHTPHSP"] > posterior_gen[, "b_Match_conditionHTMHSP"])
-
 (BF_M2_vs_Mu2<-restricted_BF(m2, 4e4, 5))
 
 ## Order restricted model 3
 m3<-(posterior_mu3[, "b_ORM_codeImagine"]>0) & 
-    (posterior_mu3[, "b_ORM_codeImagine"]<posterior_mu3[, "b_ORM_codeHTPHSP"])
-
+    (posterior_mu3[, "b_ORM_codeImagine"] < posterior_mu3[, "b_ORM_codeHTPHSP"])
 (BF_M3_vs_Mu3<-restricted_BF(m3, 4e4, 3))
 
 
+# Bayes factors
+BF_M0_vs_M1<- BF_M0_vs_Mu1 / BF_M1_vs_Mu1
+BF_M0_vs_M2<- BF_M0_vs_Mu2 / BF_M2_vs_Mu2
+BF_M0_vs_M3<- BF_M0_vs_Mu3 / BF_M3_vs_Mu3
+BF_M1_vs_Mu2<- (1/BF_M0_vs_M1) * BF_M0_vs_Mu2
+BF_M3_vs_Mu2 <- (1/BF_M0_vs_M3) * BF_M0_vs_Mu2
+BF_M1_vs_M2 <- BF_M1_vs_Mu2 / BF_M2_vs_Mu2
+BF_M2_vs_M3 <- BF_M2_vs_Mu2 / BF_M3_vs_Mu2
+BF_M1_vs_M3 <- BF_M1_vs_M2 * BF_M2_vs_M3
 
+# BFs
+print(paste0("M0/M3: ", BF_M0_vs_M3))
+print(paste0("M0/M1: ", BF_M0_vs_M1))
+print(paste0("M0/M2: ", BF_M0_vs_M2))
+print(paste0("M0/Mu2: ", BF_M0_vs_Mu2))
 
+print(paste0("M3/M1: ", 1/BF_M1_vs_M3))
+print(paste0("M3/M2: ", 1/BF_M2_vs_M3))
+print(paste0("M3/Mu2: ", BF_M3_vs_Mu2))
+
+print(paste0("M1/M2: ", BF_M1_vs_M2))
+print(paste0("M1/Mu2: ", BF_M1_vs_Mu2))
+
+print(paste0("M2/Mu2: ", BF_M2_vs_Mu2))
 ```
 
 
 ```{r}
-# Mu1
 Bayes<- brm(data=IPEG2.df, family=cumulative("logit"),
                       formula= bf(Help~Conditions+HT_sex_c+HT_age_c+(Conditions|participant)+
                       (Conditions|Sim_SID)+(Conditions|HTFace_ID)+(Conditions|STFace_ID)+(Conditions|HS_ID)) +
@@ -366,7 +390,6 @@ Bayes<- brm(data=IPEG2.df, family=cumulative("logit"),
                            prior(lkj(1), class = cor)),
                   iter=7000,warmup =2000, chains=8, cores=8, seed=20, sample_prior=T,save_all_pars = T, control=list(adapt_delta=0.99))
 
-# Mu2
 Bayes_gen<- brm(data=IPEG2.df, family=cumulative("logit"),
                       formula= bf(Help~Match_condition+HT_sex_c+HT_age_c+(Match_condition|participant)+
                       (Match_condition|Sim_SID)+(Match_condition|HTFace_ID)+(Match_condition|STFace_ID)+(1|HS_ID)) +
@@ -377,9 +400,72 @@ Bayes_gen<- brm(data=IPEG2.df, family=cumulative("logit"),
                            prior(lkj(1), class = cor)),
                   iter=7000,warmup =2000, chains=8, cores=8, seed=20, sample_prior=T,save_all_pars = T,control=list(adapt_delta=0.99))
 
+# Null model 
+null<- brm(data= IPEG2.df, family=cumulative("logit"), 
+                  Help~HT_sex_c+HT_age_c+(1|participant)+(1|Sim_SID)+(1|HTFace_ID)+(1|STFace_ID)+(1|HS_ID),
+                  prior= c(prior(normal (0,1), class=b),
+                           prior(normal(0,1.2), class=Intercept),
+                           prior(exponential(1), class= sd)), 
+                  iter=7000,warmup=2000,chains=8, cores=8, seed=67, sample_prior=T, save_all_pars = T ,control=list(adapt_delta=0.99))
+
 # Mu3
 Bayes_mu3<- brm(data=IPEG2.df, family=cumulative("logit"),
                       formula= bf(Help~ORM_code+HT_sex_c+HT_age_c+(ORM_code|participant)+
+                      (ORM_code|Sim_SID)+(1|HTFace_ID)+(1|STFace_ID)+(1|HS_ID)) +
+                   lf(disc~ 0+ORM_code, cmc=F),
+                  prior= c(prior(normal (0,1), class=b),
+                           prior(normal(0,1.2), class=Intercept),
+                           prior(exponential(1), class= sd),
+                           prior(lkj(1), class = cor)),
+                  iter=7000,warmup = 2000, chains=8, cores=8, seed=20, sample_prior=T,save_all_pars = T,control=list(adapt_delta=0.99))
+
+
+# Mu1/M0
+set.seed (67);BF_Mu1_vs_M0 <- bayes_factor(Bayes, null)
+# Mu2/M0
+set.seed (67);BF_Mu2_vs_M0 <- bayes_factor(Bayes_gen, null)
+# Mu3/M0
+set.seed (67);BF_Mu3_vs_M0 <- bayes_factor(Bayes_mu3, null)
+BF_Mu1_vs_M0;BF_Mu2_vs_M0;BF_Mu3_vs_M0
+
+# Mu1/M0
+set.seed (67);BF_Mu1_vs_M0.2 <- bayes_factor(Bayes.2, null.2)
+# Mu2/M0
+set.seed (67);BF_Mu2_vs_M0.2 <- bayes_factor(Bayes_gen.2, null.2)
+# Mu3/M0
+set.seed (67);BF_Mu3_vs_M0.2 <- bayes_factor(Bayes_mu3.2, null.2)
+BF_Mu1_vs_M0.2;BF_Mu2_vs_M0.2; BF_Mu3_vs_M0.2
+
+
+
+
+
+
+# Mu1
+Bayes.2<- brm(data=IPEG2.df, family=cumulative("logit"),
+                      formula= bf(Help~Conditions+(Conditions|participant)+
+                      (Conditions|Sim_SID)+(Conditions|HTFace_ID)+(Conditions|STFace_ID)+(Conditions|HS_ID)) +
+                   lf(disc~ 0+Conditions, cmc=F),
+                  prior= c(prior(normal (0,1), class=b),
+                           prior(normal(0,1.2), class=Intercept),
+                           prior(exponential(1), class= sd),
+                           prior(lkj(1), class = cor)),
+                  iter=7000,warmup =2000, chains=8, cores=8, seed=20, sample_prior=T,save_all_pars = T, control=list(adapt_delta=0.99))
+
+# Mu2
+Bayes_gen.2<- brm(data=IPEG2.df, family=cumulative("logit"),
+                      formula= bf(Help~Match_condition+(Match_condition|participant)+
+                      (Match_condition|Sim_SID)+(Match_condition|HTFace_ID)+(Match_condition|STFace_ID)+(1|HS_ID)) +
+                   lf(disc~ 0+Match_condition, cmc=F),
+                  prior= c(prior(normal (0,1), class=b),
+                           prior(normal(0,1.2), class=Intercept),
+                           prior(exponential(1), class= sd),
+                           prior(lkj(1), class = cor)),
+                  iter=7000,warmup =2000, chains=8, cores=8, seed=20, sample_prior=T,save_all_pars = T,control=list(adapt_delta=0.99))
+
+# Mu3
+Bayes_mu3.2<- brm(data=IPEG2.df, family=cumulative("logit"),
+                      formula= bf(Help~ORM_code+(ORM_code|participant)+
                       (ORM_code|Sim_SID)+(ORM_code|HTFace_ID)+(ORM_code|STFace_ID)+(1|HS_ID)) +
                    lf(disc~ 0+ORM_code, cmc=F),
                   prior= c(prior(normal (0,1), class=b),
@@ -388,13 +474,15 @@ Bayes_mu3<- brm(data=IPEG2.df, family=cumulative("logit"),
                            prior(lkj(1), class = cor)),
                   iter=7000,warmup =2000, chains=8, cores=8, seed=20, sample_prior=T,save_all_pars = T,control=list(adapt_delta=0.99))
 
-
 # M0
-null<- brm(data= IPEG2.df, family=cumulative("logit"), 
-                  Help~ HT_sex_c+HT_age_c+(1|participant)+(1|Sim_SID)+(1|HTFace_ID)+(1|STFace_ID)+(1|HS_ID),
+null.2<- brm(data= IPEG2.df, family=cumulative("logit"), 
+                  Help~ (1|participant)+(1|Sim_SID)+(1|HTFace_ID)+(1|STFace_ID)+(1|HS_ID),
                   prior= c(prior(normal(0,1.2), class=Intercept),
                            prior(exponential(1), class= sd)), 
                   iter=7000,warmup=2000,chains=8, cores=8, seed=67, sample_prior=T, save_all_pars = T,control=list(adapt_delta=0.99))
+
+
+
 ```
 
 
