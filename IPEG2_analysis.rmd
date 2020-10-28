@@ -339,18 +339,6 @@ null<- brm(data= IPEG2.df, family=cumulative("logit"),
                            prior(normal(0,1.2), class=Intercept),
                            prior(exponential(1), class= sd)), 
                   iter=7000,warmup=2000,chains=8, cores=8, seed=67, sample_prior=T, save_all_pars = T ,control=list(adapt_delta=0.99))
-
-levels(IPEG2.df$ORM_code)
-# Mu3
-Bayes_mu3<- brm(data=IPEG2.df, family=cumulative("logit"),
-                      formula= bf(Help~ORM_code+HT_sex_c+HT_age_c+(ORM_code|participant)+
-                      (ORM_code|Sim_SID)+(1|HTFace_ID)+(1|STFace_ID)+(1|HS_ID)) +
-                   lf(disc~ 0+ORM_code, cmc=F),
-                  prior= c(prior(normal (0,1), class=b),
-                           prior(normal(0,1.2), class=Intercept),
-                           prior(exponential(1), class= sd),
-                           prior(lkj(1), class = cor)),
-                  iter=7000,warmup = 2000, chains=8, cores=8, seed=20, sample_prior=T,save_all_pars = T,control=list(adapt_delta=0.99))
 set.seed(67);posterior_mu3<- posterior_samples(Bayes_mu3)
 ```
 #### BFs
@@ -370,17 +358,24 @@ m1<- (posterior[, "b_ConditionsImagine"]>0)
 (BF_M1_vs_Mu1<-restricted_BF(m1, 4e4, 2))
 
 ## Order restricted model 2
-m2<-(posterior_gen[, "b_Match_conditionHTMHSM"]>0) & 
+m2<-(posterior_gen[, "b_Match_conditionHTMHSM"] > 0) & 
   (posterior_gen[, "b_Match_conditionHTMHSM"] < posterior_gen[, "b_Match_conditionHTPHSM"]) &
-  (abs(posterior_gen[, "b_Match_conditionHTPHSM"] - posterior_gen[, "b_Match_conditionHTMHSP"]) < 0.1) &
+  (abs(posterior_gen[, "b_Match_conditionHTPHSM"] - posterior_gen[, "b_Match_conditionHTMHSP"]) <= 0.1) |
+  (posterior_gen[, "b_Match_conditionHTPHSM"] > posterior_gen[, "b_Match_conditionHTMHSP"]) |
+  (posterior_gen[, "b_Match_conditionHTPHSM"] < posterior_gen[, "b_Match_conditionHTMHSP"]) &
   (posterior_gen[, "b_Match_conditionHTPHSP"] > posterior_gen[, "b_Match_conditionHTMHSP"])
-(BF_M2_vs_Mu2<-restricted_BF(m2, 4e4, 5))
+(BF_M2_vs_Mu2 <- restricted_BF(m2, 4e4, 5))
 
 ## Order restricted model 3
-m3<-(posterior_mu3[, "b_ORM_codeImagine"] > 0) & 
-    (posterior_mu3[, "b_ORM_codeImagine"] < posterior_mu3[, "b_ORM_codeHTPHSP"])
-(BF_M3_vs_Mu3<-restricted_BF(m3, 4e4, 3))
+m3<-(posterior_mu3[, "b_ORM_codeImagine"] > 0) |
+    (abs(posterior_mu3[, "b_ORM_codeImagine"]) <= 0.1) &
+    (posterior_mu3[, "b_ORM_codeImagine"] < posterior_mu3[, "b_ORM_codeHTPHSP"]) |
+    (abs(posterior_mu3[, "b_ORM_codeImagine"] - posterior_mu3[, "b_ORM_codeHTPHSP"]) <= 0.1) &
+    (posterior_mu3[, "b_ORM_codeHTPHSP"] > 0)
+(BF_M3_vs_Mu3 <- restricted_BF(m3, 4e4, 3))
 
+sum((posterior_mu3[, "b_ORM_codeHTPHSP"] > 0))
+sum(posterior_mu3[, "b_ORM_codeImagine"] > 0)
 # Bayes factors
 BF_M0_vs_M1<- BF_M0_vs_Mu1 / BF_M1_vs_Mu1
 BF_M0_vs_M2<- BF_M0_vs_Mu2 / BF_M2_vs_Mu2
@@ -405,6 +400,8 @@ print(paste0("M1/M2: ", BF_M1_vs_M2))
 print(paste0("M1/Mu2: ", BF_M1_vs_Mu2))
 
 print(paste0("M2/Mu2: ", BF_M2_vs_Mu2))
+
+gtools::permutations(3,3)
 ```
 
 
@@ -558,7 +555,7 @@ Bayes_mu2_NC<- brm(data=no_control.df, family=cumulative("logit"),
 set.seed(67);posterior_mu2_NC<- posterior_samples(Bayes_mu2_NC)
 
 
-
+gtools::permutations(2, 2)
 ```
 #### BFs
 ```{r}
@@ -571,12 +568,12 @@ BF_M0_vs_Mu2_NC <- 1/BF_Mu2_vs_M0_NC$bf
 
 # Order restricted model 1
 m1_NC<- (posterior_gen_NC[, "b_Match_conditionHTPHSM"]>0) &
-  (abs(posterior_gen_NC[, "b_Match_conditionHTPHSM"]-posterior_gen_NC[, "b_Match_conditionHTMHSP"])<0.1) &
+  (abs(posterior_gen_NC[, "b_Match_conditionHTPHSM"]-posterior_gen_NC[, "b_Match_conditionHTMHSP"])<0.1) 
   (posterior_gen_NC[, "b_Match_conditionHTPHSP"]>posterior_gen_NC[, "b_Match_conditionHTMHSP"])
 (BF_M1_vs_Mu1<-restricted_BF(m1_NC, 4e4, 4))
 
 # Order restricted model 2
-m2_NC<-(posterior_mu2_NC[, "b_ORM_codeImagine"] < 0) 
+m2_NC<-(posterior_mu2_NC[, "b_ORM_codeImagine"] < 0) | (abs(posterior_mu2_NC[, "b_ORM_codeImagine"]) < 0.1))
 (BF_M2_vs_Mu2<-restricted_BF(m2_NC, 4e4, 2))
 
 
