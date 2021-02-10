@@ -254,7 +254,7 @@ gen_effect<- cbind.data.frame("HT-HS-"= posterior_gen$b_Match_conditionHTMHSM,
                               "HT+HS+"= posterior_gen$b_Match_conditionHTPHSP)
 gen_effect.df<-gen_effect
 gen_effect<- gen_effect %>%gather("HT-HS-", "HT+HS-", "HT-HS+", "HT+HS+", key= Condition, value= Posterior)
-violin_gen<- violin_bayes(gen_effect)[[1]]
+violin_gen<- violin_bayes(gen_effect, rope = c(0.1, -0.1))[[1]]
 violin_gen +
   labs(title="Grading effect of generalization",x="Condition", y = "Beta coefficient") +
   stat_boxplot(geom = "errorbar", width = 0.1, coef=0.7)
@@ -344,10 +344,10 @@ set.seed(67);posterior_mu3<- posterior_samples(Bayes_mu3)
 #### BFs
 ```{r}
  # Mu1/M0
-set.seed (67);BF_Mu1_v
+set.seed (67);BF_Mu1_vs_M0 <- bayes_factor(Bayes, null)
 ## Ordered Restricted model 1
 m1<- (posterior[, "b_ConditionsImagine"]>0) 
-(BF_M1_vs_Mu1<-restricted_BF(m1, 4e4, 2))s_M0 <- bayes_factor(Bayes, null)
+(BF_M1_vs_Mu1<-restricted_BF(m1, 4e4, 2))
 (BF_M0_vs_Mu1 <- 1/BF_Mu1_vs_M0$bf)
 # Mu2/M0
 set.seed (67);BF_Mu2_vs_M0 <- bayes_factor(Bayes_gen, null)
@@ -363,7 +363,7 @@ m2<-(posterior_gen[, "b_Match_conditionHTMHSM"] > 0) &
   (abs(posterior_gen[, "b_Match_conditionHTPHSM"] - posterior_gen[, "b_Match_conditionHTMHSP"]) <= 0.1) |
   (posterior_gen[, "b_Match_conditionHTPHSM"] > posterior_gen[, "b_Match_conditionHTMHSP"]) |
   (posterior_gen[, "b_Match_conditionHTPHSM"] < posterior_gen[, "b_Match_conditionHTMHSP"]) &
-  (posterior_gen[, "b_Match_conditionHTPHSP"] > posterior_gen[, "b_Match_conditionHTMHSP"])
+  (posterior_gen[, "b_Match_conditionHTPHSP"]*100 > posterior_gen[, "b_Match_conditionHTMHSP"])
 (BF_M2_vs_Mu2 <- restricted_BF(m2, 4e4, 5, 2))
 
 ## Order restricted model 3
@@ -401,6 +401,117 @@ print(paste0("M2/Mu2: ", BF_M2_vs_Mu2))
 
 ```
 
+## Order restriction  without random effects
+```{r}
+# Mu1
+Bayes_NR<- brm(data=IPEG2.df, family=cumulative("logit"),
+                      formula= bf(Help~Conditions+HT_sex_c+HT_age_c+(1|participant)+
+                      (1|Sim_SID)+(1|HTFace_ID)+(1|STFace_ID)+(1|HS_ID)) +
+                   lf(disc~ 0+Conditions, cmc=F),
+                  prior= c(prior(normal (0,1), class=b),
+                           prior(normal(0,1.2), class=Intercept),
+                           prior(exponential(1), class= sd)),
+                  iter=7000,warmup =2000, chains=8, cores=8, seed=20, sample_prior=T,save_all_pars = T)
+
+set.seed(67);posterior_NR<- posterior_samples(Bayes_NR) 
+# Mu2
+Bayes_gen_NR<- brm(data=IPEG2.df, family=cumulative("logit"),
+                      formula= bf(Help~Match_condition+HT_sex_c+HT_age_c+(1|participant)+
+                      (1|Sim_SID)+(1|HTFace_ID)+(1|STFace_ID)+(1|HS_ID)) +
+                   lf(disc~ 0+Match_condition, cmc=F),
+                  prior= c(prior(normal (0,1), class=b),
+                           prior(normal(0,1.2), class=Intercept),
+                           prior(exponential(1), class= sd)),
+                  iter=7000,warmup =2000, chains=8, cores=8, seed=20, sample_prior=T,save_all_pars = T))
+set.seed(67);posterior_gen_NR<- posterior_samples(Bayes_gen_NR)
+
+# Mu3
+Bayes_mu3_NR<- brm(data=IPEG2.df, family=cumulative("logit"),
+                      formula= bf(Help~ORM_code+HT_sex_c+HT_age_c+(1|participant)+
+                      (1|Sim_SID)+(1|HTFace_ID)+(1|STFace_ID)+(1|HS_ID)) +
+                   lf(disc~ 0+ORM_code, cmc=F),
+                  prior= c(prior(normal (0,1), class=b),
+                           prior(normal(0,1.2), class=Intercept),
+                           prior(exponential(1), class= sd)),
+                  iter=7000,warmup = 2000, chains=8, cores=8, seed=20, sample_prior=T,save_all_pars = T)
+set.seed(67);posterior_mu3_NR<- posterior_samples(Bayes_mu3_NR)
+
+# Null model 
+null_NR<- brm(data= IPEG2.df, family=cumulative("logit"), 
+                  Help~HT_sex_c+HT_age_c+(1|participant)+(1|Sim_SID)+(1|HTFace_ID)+(1|STFace_ID)+(1|HS_ID),
+                  prior= c(prior(normal (0,1), class=b),
+                           prior(normal(0,1.2), class=Intercept),
+                           prior(exponential(1), class= sd)), 
+                  iter=7000,warmup=2000,chains=8, cores=8, seed=67, sample_prior=T, save_all_pars = T ,control=list(adapt_delta=0.99))
+
+Bayes_mu3<- brm(data=IPEG2.df, family=cumulative("logit"),
+                      formula= bf(Help~ORM_code+HT_sex_c+HT_age_c+(ORM_code|participant)+
+                      (ORM_code|Sim_SID)+(1|HTFace_ID)+(1|STFace_ID)+(1|HS_ID)) +
+                   lf(disc~ 0+ORM_code, cmc=F),
+                  prior= c(prior(normal (0,1), class=b),
+                           prior(normal(0,1.2), class=Intercept),
+                           prior(exponential(1), class= sd),
+                           prior(lkj(1), class = cor)),
+                  iter=7000,warmup = 2000, chains=8, cores=8, seed=20, sample_prior=T,save_all_pars = T,control=list(adapt_delta=0.99))
+
+#### BFs
+# Mu1/M0
+set.seed (67);BF_Mu1_vs_M0_NR <- bayes_factor(Bayes_NR, null_NR)
+## Ordered Restricted model 1
+m1_NR<- (posterior_NR[, "b_ConditionsImagine"] > 0) 
+(BF_M1_vs_Mu1_NR<-restricted_BF(m1_NR, 4e4, 2))
+(BF_M0_vs_Mu1_NR <- 1/BF_Mu1_vs_M0_NR$bf)
+# Mu2/M0
+set.seed (67);BF_Mu2_vs_M0_NR <- bayes_factor(Bayes_gen_NR, null_NR)
+(BF_M0_vs_Mu2_NR <- 1/BF_Mu2_vs_M0_NR$bf)
+# Mu3/M0
+set.seed (67);BF_Mu3_vs_M0_NR <- bayes_factor(Bayes_mu3_NR, null_NR)
+(BF_M0_vs_Mu3_NR <- 1/BF_Mu3_vs_M0_NR$bf)
+
+
+## Order restricted model 2
+m2_NR<-(posterior_gen_NR[, "b_Match_conditionHTMHSM"] > 0) & 
+  (posterior_gen_NR[, "b_Match_conditionHTMHSM"] < posterior_gen_NR[, "b_Match_conditionHTPHSM"]) &
+  (abs(posterior_gen_NR[, "b_Match_conditionHTPHSM"] - posterior_gen_NR[, "b_Match_conditionHTMHSP"]) <= 0.1) |
+  (posterior_gen_NR[, "b_Match_conditionHTPHSM"] > posterior_gen_NR[, "b_Match_conditionHTMHSP"]) |
+  (posterior_gen_NR[, "b_Match_conditionHTPHSM"] < posterior_gen_NR[, "b_Match_conditionHTMHSP"]) &
+  (posterior_gen_NR[, "b_Match_conditionHTPHSP"]*100 > posterior_gen_NR[, "b_Match_conditionHTMHSP"])
+(BF_M2_vs_Mu2_NR <- restricted_BF(m2_NR, 4e4, 5, 2))
+
+## Order restricted model 3
+m3_NR<-(posterior_mu3_NR[, "b_ORM_codeImagine"] > 0) |
+    (abs(posterior_mu3_NR[, "b_ORM_codeImagine"]) <= 0.1) &
+    (posterior_mu3_NR[, "b_ORM_codeImagine"] < posterior_mu3_NR[, "b_ORM_codeHTPHSP"]) |
+    (abs(posterior_mu3_NR[, "b_ORM_codeImagine"] - posterior_mu3_NR[, "b_ORM_codeHTPHSP"]) <= 0.1) &
+    (posterior_mu3_NR[, "b_ORM_codeHTPHSP"] > 0)
+(BF_M3_vs_Mu3_NR <- restricted_BF(m3_NR, 4e4, 3))
+
+# Bayes factors
+BF_M0_vs_M1_NR <- BF_M0_vs_Mu1_NR / BF_M1_vs_Mu1_NR
+BF_M0_vs_M2_NR <- BF_M0_vs_Mu2_NR / BF_M2_vs_Mu2_NR
+BF_M0_vs_M3_NR <- BF_M0_vs_Mu3_NR / BF_M3_vs_Mu3_NR
+BF_M1_vs_Mu2_NR <- BF_M0_vs_Mu2_NR / BF_M0_vs_M1_NR
+BF_M3_vs_Mu2_NR <- BF_M0_vs_Mu2_NR / BF_M0_vs_M3_NR
+BF_M1_vs_M2_NR <- BF_M1_vs_Mu2_NR / BF_M2_vs_Mu2_NR
+BF_M2_vs_M3_NR <- BF_M2_vs_Mu2_NR / BF_M3_vs_Mu2_NR
+BF_M1_vs_M3_NR <- BF_M1_vs_M2_NR * BF_M2_vs_M3_NR
+
+# BFs
+print(paste0("M0/M3: ", BF_M0_vs_M3_NR))
+print(paste0("M0/M1: ", BF_M0_vs_M1_NR))
+print(paste0("M0/M2: ", BF_M0_vs_M2_NR))
+print(paste0("M0/Mu2: ", BF_M0_vs_Mu2_NR))
+
+print(paste0("M3/M1: ", 1/BF_M1_vs_M3_NR))
+print(paste0("M3/M2: ", 1/BF_M2_vs_M3_NR))
+print(paste0("M3/Mu2: ", BF_M3_vs_Mu2_NR))
+
+print(paste0("M1/M2: ", BF_M1_vs_M2_NR))
+print(paste0("M1/Mu2: ", BF_M1_vs_Mu2_NR))
+
+print(paste0("M2/Mu2: ", BF_M2_vs_Mu2_NR))
+
+```
 
 ```{r}
 Bayes<- brm(data=IPEG2.df, family=cumulative("logit"),
@@ -519,7 +630,7 @@ null.2<- brm(data= IPEG2.df, family=cumulative("logit"),
 ** 6) ordered model2 (data driven) M2: HT-HS- = HT+HS- = HT-HS+ < HT+HS+
 
 ```{r}
-no_control.df<-IPEG2.df[IPEG2.df$Match_condition!="Identify",]
+no_control.df<-IPEG2.df[IPEG2.df$Match_condition!="Identify", ]
 
 # Null model 
 null_NC<- brm(data= no_control.df, family=cumulative("logit"), 
