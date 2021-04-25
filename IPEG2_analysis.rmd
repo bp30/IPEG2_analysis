@@ -51,10 +51,13 @@ These measures are included to reduce the possibility of participants correctly 
 ```{r setup, include=FALSE}
 # Load packages
 if (!require(pacman)) install.packages('pacman')
-pacman::p_load(tidyverse,brms, bayestestR) 
+pacman::p_load(tidyverse, brms, bayestestR) 
 
 # source custom codes
 source("C:/Users/dpen466/Google Drive/Phd (1)/Experiment/Studies/Data/IPE/source/Bayes_scripts.R")
+source("C:/Users/dpen466/Google Drive/Phd (1)/Experiment/Studies/Data/IPE/source/LMM_scripts.R")
+
+palette <- c("#eeaa7b", "#00b159", "#00aedb", "#F8766D", "#9590FF", "#CC9933", "#0000FF")
 ```
 
 ##Data setup
@@ -67,10 +70,12 @@ IPEG2.df<- read.csv('IPEG2_fulldata_N=30.csv', header=T)
 IPEG2.df<- IPEG2.df[complete.cases(IPEG2.df$Condition),]
 
 # Convert Story_ID and Condition vectors into factors and ensure Identify condition is set as the reference group
-IPEG2.df$Sim_SID<- as.factor(IPEG2.df$Sim_SID)
-IPEG2.df$HS_ID<- as.factor(IPEG2.df$HS_ID)
-IPEG2.df$Conditions<- as.factor(IPEG2.df$Conditions)
+IPEG2.df$Sim_SID <- as.factor(IPEG2.df$Sim_SID)
+IPEG2.df$HS_ID <- as.factor(IPEG2.df$HS_ID)
+IPEG2.df$Conditions <- as.factor(IPEG2.df$Conditions)
 levels (IPEG2.df$Conditions) <- c('Identify', 'Imagine')
+IPEG2.df$Detail <- as.integer(IPEG2.df$Detail)
+IPEG2.df$Coherence <- as.integer(IPEG2.df$Coherence)
 
 # Data transformations 
 ## Generate the five factor variable for Match conditions
@@ -80,7 +85,7 @@ IPEG2.df$Match_condition <- as.factor(IPEG2.df$Match_condition)
 levels(IPEG2.df$Match_condition) <- c("Identify","HT-HS-", "HT+HS-","HT-HS+", "HT+HS+")
 
 ## Effect code and dummy
-IPEG2.df<- IPEG2.df%>% 
+IPEG2.df<- IPEG2.df %>% 
               mutate(
                 # Effect code sex of helping targets(Female=1, male=-1)
                 HT_sex_c= ifelse(HT_sex=='F', 1, -1),
@@ -88,11 +93,25 @@ IPEG2.df<- IPEG2.df%>%
                 HT_age_c = ifelse(HT_age=='Old', 1, -1),
                 # Create a dummy variable= for the condition variable
                 dummy_img = as.numeric (Conditions=='Imagine'),
+                Coherence_C = group_center(Coherence, participant),
+                Detail_C = group_center(Detail, participant),
                 # Ordered restricted contrast
                 ORM_code = ifelse(Match_condition=='Identify', "Identify",
                                   ifelse(Match_condition=='HT+HS+','HT+HS+', "Imagine")))
 IPEG2.df$ORM_code <- as.factor (IPEG2.df$ORM_code)
 IPEG2.df$ORM_code <- relevel(IPEG2.df$ORM_code, ref = "Identify")
+
+# vividness df
+vivid.df <- IPEG2.df %>%
+                filter(Conditions == 'Imagine') 
+
+# Only HT+HS+
+HT_HS.df <- vivid.df %>%
+                filter(Match_condition == 'HT+HS+') 
+
+# without HT+HS+
+HT_HS_not_included.df <- vivid.df %>%
+                filter(Match_condition != 'HT+HS+') 
 ```
 
 
@@ -118,7 +137,7 @@ bayes_samples(Bayes)
 set.seed(67);prior_sim(Bayes, c("sd_participant", 'cor_participant', "b"))
 
 # Results
-summary(Bayes, probs=0.89)
+summary(Bayes, prob=0.89)
 # pd
 p_direction(Bayes, parameters = "b_Conditions")
 # % in ROPE
@@ -131,6 +150,10 @@ latent_SD(posterior)
 
 test<- hypothesis(Bayes, hypothesis = "ConditionsImagine = 0", alpha=0.055)
 test;plot(test)
+
+
+# OR
+posterior_summary(exp(posterior$b_ConditionsImagine), probs = c(0.055, 0.945))
 ```
 ### Plots
 ```{r}
@@ -168,13 +191,15 @@ PSE<-cbind.data.frame('IPE'=IPE_imagine.df,
                        'IPEG2'= posterior$b_ConditionsImagine)
 PSE.df<-PSE
 PSE<- PSE %>% gather("IPE","IPEF", 'IPEG','IPEG2', key= Condition, value= Posterior)
-violin_PSE<- violin_bayes(PSE)[[1]]
+violin_PSE<- violin_bayes(PSE, HDI_range = c(0.055, 0.945) )[[1]]
 violin_PSE +
-  labs(title="Prosocial simulation effect across experiments",x="Experiment", y = "Beta coefficient") +
-  stat_boxplot(geom = "errorbar", width = 0.1, coef=0.7)
+  labs(x="Experiment", y = "Logit")+
+  scale_x_discrete(labels=c( "Experiment 2", "Experiment 3", "Experiment 4", "Experiment 5")) +
+  scale_fill_manual(values=c(palette[1], palette[2], palette[3], palette[4])) +
+  scale_color_manual(values = c(palette[1], palette[2], palette[3], palette[4]))
 
 # Summaries
-violin_bayes(PSE, CI_range = c(0.055, 0.945))[[2]]
+violin_bayes(PSE, HDI_range = c(0.055, 0.945))[[2]]
 # pd
 p_direction(PSE.df)
 # % in ROPE
@@ -183,28 +208,30 @@ rope(PSE.df,ci=1, range = c(-0.1, 0.1))
 # Contrasts between conditions across experiments
 IPE_IPEG2<-PSE$Posterior[PSE$Condition=="IPE"]-PSE$Posterior[PSE$Condition=="IPEG2"]
 IPEF_IPEG2<-PSE$Posterior[PSE$Condition=="IPEF"]-PSE$Posterior[PSE$Condition=="IPEG2"]
-IPE_IPEG<-PSE$Posterior[PSE$Condition=="IPE"]-PSE$Posterior[PSE$Condition=="IPEG"]
-IPEF_IPEG<-PSE$Posterior[PSE$Condition=="IPEF"]-PSE$Posterior[PSE$Condition=="IPEG"]
 IPEG_IPEG2 <- PSE$Posterior[PSE$Condition=="IPEG"]-PSE$Posterior[PSE$Condition=="IPEG2"]
 
-PSE_dif<- cbind.data.frame("IPE-IPEG"=IPE_IPEG,
-                          "IPEF-IPEG"=IPEF_IPEG,
-                          "IPE-IPEG2"=IPE_IPEG2,
-                          "IPEF-IPEG2"=IPEF_IPEG2, 
-                          "IPEG-IPEG2"=IPEG_IPEG2)
+PSE_dif<- cbind.data.frame("IPE-IPEG2"=IPE_IPEG2,
+                           "IPEF-IPEG2"=IPEF_IPEG2, 
+                           "IPEG-IPEG2"=IPEG_IPEG2)
 PSE_dif.df<-PSE_dif
-PSE_dif<- PSE_dif %>% gather("IPE-IPEG","IPEF-IPEG","IPE-IPEG2","IPEF-IPEG2","IPEG-IPEG2", key= Condition, value= Posterior)
-violin_dif<- violin_bayes(PSE_dif)[[1]]
+PSE_dif<- PSE_dif %>% gather("IPE-IPEG2","IPEF-IPEG2","IPEG-IPEG2", key= Condition, value= Posterior)
+violin_dif<- violin_bayes(PSE_dif, HDI_range = c(0.055, 0.945))[[1]]
 violin_dif +
-  labs(title="Contrast of Prosocial simulation effect across experiments",x="Contrast", y = "Beta coefficient") + 
-  stat_boxplot(geom = "errorbar", width = 0.1, coef=0.7)
-
+  labs(x="Experiment Contrast", y = "Logit") +
+  scale_x_discrete(labels=c( "Experiment 2 > Experiment 5", 
+                             "Experiment 3 > Experiment 5",
+                             "Experiment 4 > Experiment 5"))+
+  scale_fill_manual(values = c(palette[5], palette[6], palette[7])) +
+  scale_color_manual(values = c(palette[5], palette[6], palette[7]))
+  
 # Summaries
-violin_bayes(PSE_dif, CI_range = c(0.055, 0.945))[[2]]
+violin_bayes(PSE_dif, HDI_range = c(0.055, 0.945))[[2]]
 # pd
 p_direction(PSE_dif.df)
 # % in ROPE
 rope(PSE_dif.df,ci=1, range = c(-0.1, 0.1))
+
+posterior_summary(exp(PSE_dif.df), probs= c(0.055, 0.945))
 ```
 
 
@@ -254,37 +281,48 @@ gen_effect<- cbind.data.frame("HT-HS-"= posterior_gen$b_Match_conditionHTMHSM,
                               "HT+HS+"= posterior_gen$b_Match_conditionHTPHSP)
 gen_effect.df<-gen_effect
 gen_effect<- gen_effect %>%gather("HT-HS-", "HT+HS-", "HT-HS+", "HT+HS+", key= Condition, value= Posterior)
-violin_gen<- violin_bayes(gen_effect, rope = c(0.1, -0.1))[[1]]
+violin_gen<- violin_bayes(gen_effect, HDI_range = c(0.055, 0.945))[[1]]
 violin_gen +
-  labs(title="Grading effect of generalization",x="Condition", y = "Beta coefficient") +
-  stat_boxplot(geom = "errorbar", width = 0.1, coef=0.7)
+  labs(x="Condition", y = "Logit")
 # Summary
-violin_bayes(gen_effect, CI_range=c(0.055, 0.945))[[2]]
+violin_bayes(gen_effect, HDI_range=c(0.055, 0.945))[[2]]
+p_direction (gen_effect.df)
+# OR 
+posterior_summary(exp(gen_effect.df), probs=c(0.055, 0.945))
+
 #-------------------------------------------------------------------------------------------------------------
 # Plot the predicted probability of each category on the outcome measure for each condition
 Gen_plot<-conditional_effects(Bayes_gen,categorical=T)
 plot(Gen_plot)[[1]] +
   scale_x_discrete(labels=c("Identify Media Source", "HT-HS-", "HT+HS-", "HT-HS+", "HT+HS+")) +
   theme_classic() +
-  xlab("Simulation Conditions") +
+  xlab("Condition") +
   ylim (0, 0.45)
 #-------------------------------------------------------------------------------------------------------------
-cond_contrasts<- BF01$samples
-colnames(cond_contrasts) <- c("HT-HS->HT+HS-","HT-HS->HT-HS+","HT-HS->HT+HS+","HT+HS->HT-HS+","HT+HS->HT+HS+","HT-HS+>HT+HS+")
+cond_contrasts <- cbind.data.frame ("HT-HS-<HT+HS-" = gen_effect.df$`HT+HS-` - gen_effect.df$`HT-HS-`, 
+                                    "HT-HS-<HT-HS+" = gen_effect.df$`HT-HS+` - gen_effect.df$`HT-HS-`,
+                                    "HT-HS-<HT+HS+" = gen_effect.df$`HT+HS+` - gen_effect.df$`HT-HS-`,
+                                    "HT+HS-<HT-HS+" = gen_effect.df$`HT-HS+` - gen_effect.df$`HT+HS-`,
+                                    "HT+HS-<HT+HS+" = gen_effect.df$`HT+HS+` - gen_effect.df$`HT+HS-`,
+                                    "HT-HS+<HT+HS+" = gen_effect.df$`HT+HS+` - gen_effect.df$`HT-HS+`)
+colnames(cond_contrasts) <- c("HT-HS-<HT+HS-","HT-HS-<HT-HS+","HT-HS-<HT+HS+","HT+HS-<HT-HS+",
+                              "HT+HS-<HT+HS+", "HT-HS+<HT+HS+")
 cond_contrasts.df <- cond_contrasts
-cond_contrasts.df<-cond_contrasts.df %>% gather("HT-HS->HT+HS-","HT-HS->HT-HS+","HT-HS->HT+HS+","HT+HS->HT-HS+","HT+HS->HT+HS+","HT-HS+>HT+HS+",key= Condition, value= Posterior)
-contrast_plot<- violin_bayes(cond_contrasts.df)[[1]]
+cond_contrasts.df<-cond_contrasts.df %>% gather("HT-HS-<HT+HS-", "HT-HS-<HT-HS+", "HT-HS-<HT+HS+", "HT+HS-<HT-HS+",
+                                                "HT+HS-<HT+HS+", "HT-HS+<HT+HS+", key= Condition, value= Posterior)
+contrast_plot<- violin_bayes(cond_contrasts.df, HDI_range = c(0.055, 0.945))[[1]]
 contrast_plot+
-  labs(title="Contrasts between conditions",x="contrasts", y = "Beta coefficient") +
-  stat_boxplot(geom = "errorbar", width = 0.1, coef=0.7) + 
-  geom_hline(yintercept=c(-0.1, 0.1),color="blue",linetype="dashed")
+  labs(x="Condition Contrasts", y = "Logit")
 
 # Summary
-violin_bayes(cond_contrasts.df, CI=c(0.055, 0.945))[[2]]
+violin_bayes(cond_contrasts.df, HDI_range=c(0.055, 0.945))[[2]]
 # pd
 p_direction (cond_contrasts)
 # % in ROPE
 rope(cond_contrasts,ci=1, range =c(-0.10, 0.10))
+
+# OR 
+posterior_summary(exp(cond_contrasts), probs=c(0.055, 0.945))
 ```
 
 
@@ -763,6 +801,10 @@ print(paste0("Mu/M1: ", BF_Mu2_vs_M1_NC))
 
 
 
+
+
+
+
 ## Test
 
 ```{r}
@@ -869,9 +911,219 @@ m_HTPHSM<-(posterior_HTPHSM[, "b_Match_conditionHTPHSM"] > 0) |
 
 ```
 
+# Vividness
+## all conditions in imagine helping
+```{r}
+# Detail
+IPEG2_det_IH <- brm(data = vivid.df, family = cumulative("logit"),
+                      formula = Help ~ Detail_C + HT_sex_c + HT_age_c + (Detail_C|participant) +
+                      (Detail_C|Sim_SID)+(1|HTFace_ID)+(1|STFace_ID)+(1|HS_ID),
+                  prior = c(prior(normal(0,1), class = b),
+                            prior(normal(0,1.2), class = Intercept),
+                            prior(exponential(1), class = sd),
+                            prior(lkj(1), class = cor)),
+                  iter = 7000, warmup = 2000, chains = 8, cores = 8, seed = 67, sample_prior = T,save_all_pars = T)
+
+pp_check(IPEG2_det_IH)
+bayes_samples(IPEG2_det_IH)
+# Summary
+summary(IPEG2_det_IH, prob = 0.89)
+# pd
+p_direction(IPEG2_det_IH, parameters = c("b_Detail_C"))
+# Extract posterior samples 
+set.seed(67);posterior_det_IPEG2 <- posterior_samples(IPEG2_det_IH)
+# OR
+posterior_summary(exp(posterior_det_IPEG2$`b_Detail_C`), probs=c(0.055, 0.945))
+#------------------------------------------------------------------------------------------------------------------------
+# Coherence
+IPEG2_coh_IH <- brm(data = vivid.df, family = cumulative("logit"),
+                      formula = Help ~ Coherence_C + HT_sex_c + HT_age_c + (Coherence_C|participant) +
+                      (Coherence_C|Sim_SID)+(1|HTFace_ID)+(1|STFace_ID)+(1|HS_ID),
+                  prior = c(prior(normal(0, 1), class = b),
+                            prior(normal(0, 1.2), class = Intercept),
+                            prior(exponential(1), class = sd),
+                            prior(lkj(1), class = cor)),
+                  iter = 7000 ,warmup = 2000, chains = 8, cores = 8, seed = 67, sample_prior = T,save_all_pars = T, control=list(adapt_delta=0.99))
+
+pp_check(IPEG2_coh_IH)
+bayes_samples(IPEG2_coh_IH)
+# Summary
+summary(IPEG2_coh_IH, prob = 0.89)
+# pd
+p_direction(IPEG2_coh_IH, parameters = c("b_Coherence_C"))
+# Extract posterior samples 
+set.seed(67);posterior_coh_IPEG2 <- posterior_samples(IPEG2_coh_IH)
+# OR
+posterior_summary(exp(posterior_coh_IPEG2$`b_Coherence_C`), probs=c(0.055, 0.945))
+```
+
+#### Plots
+```{r}
+# Violin plots -- Detail and Coherence
+IPEG2_vivid <- cbind.data.frame('Detail' = posterior_det_IPEG2$b_Detail_C, "Coherence" = posterior_coh_IPEG2$b_Coherence_C)
+plot_vivid_IPEG2 <- IPEG2_vivid %>% gather("Detail", "Coherence",  key = Condition, value = Posterior)
+violin_vivid_IPEG2 <- violin_bayes(plot_vivid_IPEG2, HDI_range = c(0.055, 0.945))[[1]]
+violin_vivid_IPEG2 +
+  labs(x = "Vividness measures", y = "logit") +
+  theme(legend.position='none') +
+  ylim(-0.5, 1) +
+  scale_fill_manual(values = c(palette[2], palette[3])) +
+  scale_color_manual(values = c(palette[2], palette[3]))
+
+# Summary
+violin_bayes(plot_vivid_IPEG2, HDI_range = c(0.055, 0.945))[[2]]
+# pd 
+p_direction(IPEG2_vivid)
+# OR
+posterior_summary(exp(IPEG2_vivid), probs = c(0.055, 0.945))
+```
+
+## only HT+HS+
+```{r}
+# Detail
+IPEG2_det_HTHS <- brm(data = HT_HS.df, family = cumulative("logit"),
+                      formula = Help ~ Detail_C + HT_sex_c + HT_age_c + (Detail_C|participant) +
+                      (Detail_C|Sim_SID)+(1|HTFace_ID)+(1|STFace_ID)+(1|HS_ID),
+                  prior = c(prior(normal(0,1), class = b),
+                            prior(normal(0,1.2), class = Intercept),
+                            prior(exponential(1), class = sd),
+                            prior(lkj(1), class = cor)),
+                  iter = 7000, warmup = 2000, chains = 8, cores = 8, seed = 67, sample_prior = T,save_all_pars = T)
+
+pp_check(IPEG2_det_HTHS)
+bayes_samples(IPEG2_det_HTHS)
+# Summary
+summary(IPEG2_det_HTHS, prob = 0.89)
+# pd
+p_direction(IPEG2_det_HTHS, parameters = c("b_Detail_C"))
+# Extract posterior samples 
+set.seed(67);posterior_det_HTHS_IPEG2 <- posterior_samples(IPEG2_det_HTHS)
+# OR
+posterior_summary(exp(posterior_det_HTHS_IPEG2$`b_Detail_C`), probs=c(0.055, 0.945))
+#------------------------------------------------------------------------------------------------------------------------
+# Coherence
+IPEG2_coh_HTHS <- brm(data = HT_HS.df, family = cumulative("logit"),
+                      formula = Help ~ Coherence_C + HT_sex_c + HT_age_c + (Coherence_C|participant) +
+                      (Coherence_C|Sim_SID)+(1|HTFace_ID)+(1|STFace_ID)+(1|HS_ID),
+                  prior = c(prior(normal(0, 1), class = b),
+                            prior(normal(0, 1.2), class = Intercept),
+                            prior(exponential(1), class = sd),
+                            prior(lkj(1), class = cor)),
+                  iter = 7000 ,warmup = 2000, chains = 8, cores = 8, seed = 67, sample_prior = T,save_all_pars = T)
+
+pp_check(IPEG2_coh_HTHS)
+bayes_samples(IPEG2_coh_HTHS)
+# Summary
+summary(IPEG2_coh_HTHS, prob = 0.89)
+# pd
+p_direction(IPEG2_coh_HTHS, parameters = c("b_Coherence_C"))
+# Extract posterior samples 
+set.seed(67);posterior_coh_HSHT_IPEG2 <- posterior_samples(IPEG2_coh_HTHS)
+# OR
+posterior_summary(exp(posterior_coh_HSHT_IPEG2$`b_Coherence_C`), probs=c(0.055, 0.945))
+
+```
+
+#### Plots
+```{r}
+# Violin plots -- Detail and Coherence
+IPEG2_vivid_HTHS <- cbind.data.frame('Detail' = posterior_det_HTHS_IPEG2$b_Detail_C, 
+                                     "Coherence" = posterior_coh_HSHT_IPEG2$b_Coherence_C)
+plot_vivid_IPEG2_HTHS <- IPEG2_vivid_HTHS %>% gather("Detail", "Coherence",  key = Condition, value = Posterior)
+violin_vivid_IPEG2_HTHS <- violin_bayes(plot_vivid_IPEG2_HTHS, HDI_range = c(0.055, 0.945))[[1]]
+violin_vivid_IPEG2_HTHS +
+  labs(x = "Vividness measures", y = "logit") +
+  theme(legend.position='none') +
+  ylim(-0.5, 1.5) +
+  scale_fill_manual(values = c(palette[2], palette[3])) +
+  scale_color_manual(values = c(palette[2], palette[3]))
+
+# Summary
+violin_bayes(plot_vivid_IPEG2_HTHS, HDI_range = c(0.055, 0.945))[[2]]
+# pd 
+p_direction(IPEG2_vivid_HTHS)
+# OR
+posterior_summary(exp(IPEG2_vivid_HTHS), probs = c(0.055, 0.945))
+```
+
+## exclude HT+HS+
+```{r}
+# Detail
+IPEG2_det_HTHS_exclude <- brm(data = HT_HS_not_included.df, family = cumulative("logit"),
+                      formula = Help ~ Detail_C + HT_sex_c + HT_age_c + (Detail_C|participant) +
+                      (Detail_C|Sim_SID)+(1|HTFace_ID)+(1|STFace_ID)+(1|HS_ID),
+                  prior = c(prior(normal(0,1), class = b),
+                            prior(normal(0,1.2), class = Intercept),
+                            prior(exponential(1), class = sd),
+                            prior(lkj(1), class = cor)),
+                  iter = 7000, warmup = 2000, chains = 8, cores = 8, seed = 67, sample_prior = T,save_all_pars = T, control=list(adapt_delta=0.99))
+
+IPEG2_coh_HTHS_exclude <- brm(data = HT_HS_not_included.df, family = cumulative("logit"),
+                      formula = Help ~ Coherence_C + HT_sex_c + HT_age_c + (Coherence_C|participant) +
+                      (Coherence_C|Sim_SID)+(1|HTFace_ID)+(1|STFace_ID)+(1|HS_ID),
+                  prior = c(prior(normal(0, 1), class = b),
+                            prior(normal(0, 1.2), class = Intercept),
+                            prior(exponential(1), class = sd),
+                            prior(lkj(1), class = cor)),
+                  iter = 7000 ,warmup = 2000, chains = 8, cores = 8, seed = 67, sample_prior = T,save_all_pars = T, control=list(adapt_delta=0.99))
 
 
+pp_check(IPEG2_det_HTHS_exclude)
+bayes_samples(IPEG2_det_HTHS_exclude)
+# Summary
+summary(IPEG2_det_HTHS_exclude, prob = 0.89)
+# pd
+p_direction(IPEG2_det_HTHS_exclude, parameters = c("b_Detail_C"))
+# Extract posterior samples 
+set.seed(67);posterior_det_HTHSexclude_IPEG2 <- posterior_samples(IPEG2_det_HTHS_exclude)
+# OR
+posterior_summary(exp(posterior_det_HTHSexclude_IPEG2$`b_Detail_C`), probs=c(0.055, 0.945))
+#------------------------------------------------------------------------------------------------------------------------
+# Coherence
+IPEG2_coh_HTHS_exclude <- brm(data = HT_HS_not_included.df, family = cumulative("logit"),
+                      formula = Help ~ Coherence_C + HT_sex_c + HT_age_c + (Coherence_C|participant) +
+                      (Coherence_C|Sim_SID)+(1|HTFace_ID)+(1|STFace_ID)+(1|HS_ID),
+                  prior = c(prior(normal(0, 1), class = b),
+                            prior(normal(0, 1.2), class = Intercept),
+                            prior(exponential(1), class = sd),
+                            prior(lkj(1), class = cor)),
+                  iter = 7000 ,warmup = 2000, chains = 8, cores = 8, seed = 67, sample_prior = T,save_all_pars = T, control=list(adapt_delta=0.99))
 
+pp_check(IPEG2_coh_HTHS_exclude)
+bayes_samples(IPEG2_coh_HTHS_exclude)
+# Summary
+summary(IPEG2_coh_HTHS_exclude, prob = 0.89)
+# pd
+p_direction(IPEG2_coh_HTHS_exclude, parameters = c("b_Coherence_C"))
+# Extract posterior samples 
+set.seed(67);posterior_coh_HSHTexclude_IPEG2 <- posterior_samples(IPEG2_coh_HTHS_exclude)
+# OR
+posterior_summary(exp(posterior_coh_HSHTexclude_IPEG2$`b_Coherence_C`), probs=c(0.055, 0.945))
+
+```
+
+#### Plots
+```{r}
+# Violin plots -- Detail and Coherence
+IPEG2_vivid_HTHSexclude <- cbind.data.frame('Detail' = posterior_det_HTHSexclude_IPEG2$b_Detail_C, 
+                                            "Coherence" = posterior_coh_HSHTexclude_IPEG2$b_Coherence_C)
+plot_vivid_IPEG2_HTHSexclude <- IPEG2_vivid_HTHSexclude %>% gather("Detail", "Coherence",  
+                                                                   key = Condition, value = Posterior)
+violin_vivid_IPEG2exclude <- violin_bayes(plot_vivid_IPEG2_HTHSexclude, HDI_range = c(0.055, 0.945))[[1]]
+violin_vivid_IPEG2exclude +
+  labs(x = "Vividness measures", y = "logit") +
+  theme(legend.position='none') +
+  ylim(-1, 1) +
+  scale_fill_manual(values = c(palette[2], palette[3])) +
+  scale_color_manual(values = c(palette[2], palette[3]))
+
+# Summary
+violin_bayes(plot_vivid_IPEG2_HTHSexclude, HDI_range = c(0.055, 0.945))[[2]]
+# pd 
+p_direction(IPEG2_vivid_HTHSexclude)
+# OR
+posterior_summary(exp(IPEG2_vivid_HTHSexclude), probs = c(0.055, 0.945))
+```
 
 
 
